@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>セーブデータ引っ越し | Tokyo Quest Log</title>
+<link rel="icon" href="data:,">
+<style>
+  body{margin:0;background:#f6f1e7;color:#2b2b3a;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.7;}
+  .wrap{max-width:560px;margin:0 auto;padding:28px 16px 56px;}
+  .card{background:#fffdf7;border:2px solid #2b2b3a;border-radius:12px;padding:24px 22px;}
+  h1{font-size:20px;margin:0 0 2px;}
+  .sub{color:#6b6b7a;font-size:12px;margin-bottom:16px;}
+  h2{font-size:15px;margin:22px 0 6px;border-left:6px solid #e63946;padding-left:10px;}
+  p,li{font-size:14px;}
+  .savebox{background:#fff3c4;border:2px dashed #e8b93c;border-radius:10px;padding:12px 14px;font-size:14px;}
+  .savebox b{font-size:16px;}
+  .warn{background:#fdecec;border:2px solid #e63946;border-radius:10px;padding:12px 14px;font-size:13px;}
+  label{font-size:13px;font-weight:700;display:block;margin:12px 0 4px;}
+  input{width:100%;box-sizing:border-box;font-size:16px;padding:10px 12px;border:2px solid #2b2b3a;border-radius:8px;background:#fff;}
+  input.code{letter-spacing:8px;text-align:center;font-size:22px;font-weight:700;}
+  button{display:inline-block;margin-top:14px;background:#e63946;color:#fff;border:2px solid #2b2b3a;border-radius:999px;padding:10px 22px;font-size:15px;font-weight:700;cursor:pointer;}
+  button.sub2{background:#fffdf7;color:#2b2b3a;}
+  button:disabled{opacity:.45;cursor:default;}
+  .msg{margin-top:12px;font-size:13px;min-height:1.4em;}
+  .msg.err{color:#c1121f;}
+  .msg.ok{color:#1a7a37;}
+  .hidden{display:none;}
+  .gobtn{display:inline-block;margin-top:10px;background:#ffd83d;color:#2b2b3a;border:2px solid #2b2b3a;border-radius:999px;padding:10px 22px;font-size:15px;font-weight:700;text-decoration:none;}
+  .small{font-size:12px;color:#6b6b7a;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Tokyo Quest Log セーブデータ引っ越し</h1>
+    <div class="sub">旧アドレス（github.io）で遊んだ記録を、新アドレス tokyoquestlog.com のアカウントへ移します。</div>
+
+    <h2>1. この端末の旧セーブ</h2>
+    <div id="saveFound" class="savebox hidden"></div>
+    <div id="saveMissing" class="warn hidden">
+      旧セーブが見つかりませんでした。このページは、<strong>旧アドレスで遊んだのと同じブラウザ</strong>で開く必要があります。いつも遊んでいた端末・ブラウザで開き直してください。（ホーム画面のアイコンから遊んでいた場合は、このページをブラウザで開いても読み取れないことがあります。）
+    </div>
+
+    <div id="loginArea" class="hidden">
+      <h2>2. ログイン（メール認証コード）</h2>
+      <p>ゲームで使うのと同じメールアドレスを入力してください。6桁のログインコードを送ります。</p>
+      <label for="email">メールアドレス</label>
+      <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
+      <button id="sendBtn" type="button">コードを送る</button>
+      <div id="codeArea" class="hidden">
+        <label for="code">メールに届いた6桁コード</label>
+        <input id="code" class="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="------">
+        <button id="verifyBtn" type="button">ログインして引っ越しを実行</button>
+        <button id="resendBtn" class="sub2" type="button" disabled>コードを再送する</button>
+      </div>
+      <div id="loginMsg" class="msg"></div>
+    </div>
+
+    <div id="doneArea" class="hidden">
+      <h2>3. 引っ越し完了</h2>
+      <p id="doneMsg"></p>
+      <p>次に、新アドレスのゲームを開いて<strong>同じメールアドレス</strong>でログインすると、この記録が自動で読み込まれます。</p>
+      <a class="gobtn" href="https://tokyoquestlog.com/">ゲームを開く → tokyoquestlog.com</a>
+      <p class="small">※ このページの作業は一度だけで大丈夫です。旧セーブはこの端末に残したままにしています（消去はしていません）。</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  "use strict";
+  var SB_URL = "https://amanohlkajnilhsbofun.supabase.co";
+  var SB_KEY = "sb_publishable_tecsXZQy9raLW6nvBK4Ghw_PxTqiiIC";
+  var sb = window.supabase.createClient(SB_URL, SB_KEY);
+
+  // ---- 1. find the legacy save on THIS origin ----
+  function parseSave(raw){
+    if(!raw) return null;
+    try { var o = JSON.parse(raw); return (o && typeof o === "object" && !Array.isArray(o)) ? o : null; } catch(e){ return null; }
+  }
+  function looksLikeSave(o){
+    return !!o && (typeof o.level === "number" || typeof o.lv === "number" ||
+                   typeof o.exp === "number" || typeof o.totalExp === "number");
+  }
+  function findSave(){
+    var hit = parseSave(localStorage.getItem("tql_state_v1"));
+    if(looksLikeSave(hit)) return { key: "tql_state_v1", data: hit };
+    for(var i = 0; i < localStorage.length; i++){
+      var k = localStorage.key(i);
+      var o = parseSave(localStorage.getItem(k));
+      if(looksLikeSave(o)) return { key: k, data: o };
+    }
+    return null;
+  }
+  function prog(o){
+    return {
+      lv: (typeof o.level === "number" ? o.level : (typeof o.lv === "number" ? o.lv : 0)),
+      exp: (typeof o.totalExp === "number" ? o.totalExp : (typeof o.exp === "number" ? o.exp : 0)),
+      clr: (Array.isArray(o.cleared) ? o.cleared.length : (Array.isArray(o.clears) ? o.clears.length : (typeof o.clearedCount === "number" ? o.clearedCount : 0))),
+      at: (typeof o.savedAt === "number" ? o.savedAt : 0)
+    };
+  }
+  function beats(a, b){ // progress-first, same rule as the game: level > EXP > clears > savedAt
+    var A = prog(a), B = prog(b);
+    if(A.lv !== B.lv) return A.lv > B.lv;
+    if(A.exp !== B.exp) return A.exp > B.exp;
+    if(A.clr !== B.clr) return A.clr > B.clr;
+    return A.at >= B.at;
+  }
+
+  var found = findSave();
+  var saveFound = document.getElementById("saveFound");
+  var saveMissing = document.getElementById("saveMissing");
+  var loginArea = document.getElementById("loginArea");
+  if(found){
+    var p = prog(found.data);
+    var hero = found.data.heroName || found.data.playerName || (found.data.hero && found.data.hero.name) || "";
+    saveFound.innerHTML = "旧セーブが見つかりました！" +
+      (hero ? "<br>勇者：<b>" + hero.replace(/</g,"&lt;") + "</b>" : "") +
+      "<br>レベル：<b>Lv." + p.lv + "</b>／EXP：" + p.exp + (p.clr ? "／クリア数：" + p.clr : "");
+    saveFound.classList.remove("hidden");
+    loginArea.classList.remove("hidden");
+  } else {
+    saveMissing.classList.remove("hidden");
+  }
+
+  // ---- 2. email OTP login ----
+  var emailEl = document.getElementById("email");
+  var codeEl = document.getElementById("code");
+  var sendBtn = document.getElementById("sendBtn");
+  var verifyBtn = document.getElementById("verifyBtn");
+  var resendBtn = document.getElementById("resendBtn");
+  var codeArea = document.getElementById("codeArea");
+  var loginMsg = document.getElementById("loginMsg");
+  var pendingEmail = "";
+  var resendLeft = 0, resendTimer = null;
+
+  function setMsg(text, cls){ loginMsg.textContent = text; loginMsg.className = "msg" + (cls ? " " + cls : ""); }
+  function startCooldown(){
+    resendLeft = 60;
+    resendBtn.disabled = true;
+    resendBtn.textContent = "コードを再送する（" + resendLeft + "秒）";
+    clearInterval(resendTimer);
+    resendTimer = setInterval(function(){
+      resendLeft--;
+      if(resendLeft <= 0){ clearInterval(resendTimer); resendBtn.disabled = false; resendBtn.textContent = "コードを再送する"; }
+      else resendBtn.textContent = "コードを再送する（" + resendLeft + "秒）";
+    }, 1000);
+  }
+  function friendlyErr(e){
+    var m = (e && e.message) || "";
+    if(/rate|too many/i.test(m)) return "送信が続いています。少し待ってからお試しください。";
+    if(/expired/i.test(m)) return "コードの有効期限が切れました。再送してお試しください。";
+    if(/invalid|token/i.test(m)) return "コードが違うようです。メールをもう一度ご確認ください。";
+    return "うまくいきませんでした：" + m;
+  }
+  async function sendCode(email){
+    var r = await sb.auth.signInWithOtp({ email: email });
+    if(r.error) throw r.error;
+  }
+  sendBtn.addEventListener("click", async function(){
+    var email = emailEl.value.trim();
+    if(!email || email.indexOf("@") < 0){ setMsg("メールアドレスを入力してください。", "err"); return; }
+    sendBtn.disabled = true; setMsg("コードを送っています…");
+    try {
+      await sendCode(email);
+      pendingEmail = email;
+      codeArea.classList.remove("hidden");
+      setMsg("コードを送りました。メールをご確認ください（Tokyo Quest Log ログインコード）。", "ok");
+      startCooldown();
+      codeEl.focus();
+    } catch(e){ setMsg(friendlyErr(e), "err"); }
+    sendBtn.disabled = false;
+  });
+  resendBtn.addEventListener("click", async function(){
+    if(!pendingEmail || resendLeft > 0) return;
+    resendBtn.disabled = true; setMsg("コードを再送しています…");
+    try { await sendCode(pendingEmail); setMsg("新しいコードを送りました。", "ok"); startCooldown(); }
+    catch(e){ setMsg(friendlyErr(e), "err"); resendBtn.disabled = false; }
+  });
+
+  // ---- 3. verify + merge + upload ----
+  verifyBtn.addEventListener("click", async function(){
+    var token = codeEl.value.trim();
+    if(token.length !== 6){ setMsg("6桁のコードを入力してください。", "err"); return; }
+    verifyBtn.disabled = true; setMsg("ログインしています…");
+    try {
+      var v = await sb.auth.verifyOtp({ email: pendingEmail, token: token, type: "email" });
+      if(v.error) throw v.error;
+      var user = v.data.user;
+      setMsg("ログインできました。引っ越しを実行しています…", "ok");
+
+      var q = await sb.from("saves").select("data").eq("user_id", user.id).maybeSingle();
+      if(q.error) throw q.error;
+      var cloud = q.data && q.data.data && Object.keys(q.data.data).length ? q.data.data : null;
+      var winner = found.data, keptLocal = true;
+      if(cloud && !beats(found.data, cloud)){ winner = cloud; keptLocal = false; }
+      var up = await sb.from("saves").upsert({ user_id: user.id, data: winner, updated_at: new Date().toISOString() });
+      if(up.error) throw up.error;
+
+      document.getElementById("doneMsg").textContent = keptLocal
+        ? "この端末の旧セーブを、あなたのクラウド記録として保存しました。"
+        : "クラウド側の記録の方が進んでいたため、そちらをそのまま保持しました（旧セーブより新しい記録です）。";
+      loginArea.classList.add("hidden");
+      document.getElementById("doneArea").classList.remove("hidden");
+    } catch(e){ setMsg(friendlyErr(e), "err"); verifyBtn.disabled = false; }
+  });
+})();
+</script>
+</body>
+</html>
