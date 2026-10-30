@@ -42,6 +42,14 @@
       旧セーブが見つかりませんでした。このページは、<strong>旧アドレスで遊んだのと同じブラウザ</strong>で開く必要があります。いつも遊んでいた端末・ブラウザで開き直してください。（ホーム画面のアイコンから遊んでいた場合は、このページをブラウザで開いても読み取れないことがあります。）
     </div>
 
+    <div id="exportArea" class="hidden">
+      <h2>復旧用エクスポート（ログインしない）</h2>
+      <div class="warn">クラウド側の記録と競合する復旧では、ここでログインしないでください。旧セーブのJSONを書き出して、開発部へ送ってください。通常の引っ越しの場合は、この欄は使わず下のログインへ進んでください。</div>
+      <button id="downloadBtn" type="button">旧セーブJSONをダウンロード</button>
+      <button id="copyBtn" type="button" class="sub2">JSONをコピー</button>
+      <div id="exportMsg" class="msg"></div>
+    </div>
+
     <div id="loginArea" class="hidden">
       <h2>2. ログイン（メール認証コード）</h2>
       <p>ゲームで使うのと同じメールアドレスを入力してください。6桁のログインコードを送ります。</p>
@@ -85,12 +93,14 @@
                    typeof o.exp === "number" || typeof o.totalExp === "number");
   }
   function findSave(){
-    var hit = parseSave(localStorage.getItem("tql_state_v1"));
-    if(looksLikeSave(hit)) return { key: "tql_state_v1", data: hit };
+    var firstRaw = localStorage.getItem("tql_state_v1");
+    var hit = parseSave(firstRaw);
+    if(looksLikeSave(hit)) return { key: "tql_state_v1", data: hit, raw: firstRaw };
     for(var i = 0; i < localStorage.length; i++){
       var k = localStorage.key(i);
-      var o = parseSave(localStorage.getItem(k));
-      if(looksLikeSave(o)) return { key: k, data: o };
+      var raw = localStorage.getItem(k);
+      var o = parseSave(raw);
+      if(looksLikeSave(o)) return { key: k, data: o, raw: raw };
     }
     return null;
   }
@@ -122,8 +132,44 @@
       "<br>レベル：<b>Lv." + p.lv + "</b>／EXP：" + p.exp + (p.clr ? "／クリア数：" + p.clr : "");
     saveFound.classList.remove("hidden");
     loginArea.classList.remove("hidden");
+    document.getElementById("exportArea").classList.remove("hidden");
   } else {
     saveMissing.classList.remove("hidden");
+  }
+
+  if(found){
+    var rawSave = found.raw || JSON.stringify(found.data);
+    var exportMsg = document.getElementById("exportMsg");
+    document.getElementById("downloadBtn").addEventListener("click", function(){
+      var blob = new Blob([rawSave], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "tql-legacy-save.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      exportMsg.textContent = "ダウンロードしました。そのJSONを開発部へ送ってください。";
+      exportMsg.className = "msg ok";
+    });
+    document.getElementById("copyBtn").addEventListener("click", async function(){
+      try {
+        await navigator.clipboard.writeText(rawSave);
+        exportMsg.textContent = "コピーしました。そのまま開発部へ貼り付けて送ってください。";
+        exportMsg.className = "msg ok";
+      } catch(e) {
+        var ta = document.createElement("textarea");
+        ta.value = rawSave;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); exportMsg.textContent = "コピーしました。そのまま開発部へ貼り付けて送ってください。"; exportMsg.className = "msg ok"; }
+        catch(e2){ exportMsg.textContent = "コピーできませんでした。ダウンロードを使ってください。"; exportMsg.className = "msg err"; }
+        ta.remove();
+      }
+    });
   }
 
   // ---- 2. email OTP login ----
